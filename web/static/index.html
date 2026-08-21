@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Douyin Event Stream</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+      header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+      #status { color: #087f23; font-size: .9rem; }
+      #health { color: #555; font-size: .85rem; margin: .5rem 0 1rem; }
+      #error { color: #b42318; font-size: .85rem; min-height: 1.2rem; }
+      #events { list-style: none; padding: 0; display: grid; gap: .6rem; }
+      li { border: 1px solid #ddd; border-radius: 8px; padding: .8rem; background: #fafafa; }
+      time { color: #666; font-size: .8rem; }
+      code { white-space: pre-wrap; overflow-wrap: anywhere; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>抖音直播事件流</h1>
+      <span id="status">连接中…</span>
+    </header>
+    <p>COMMENT 事件通过 <code>/ws/events</code> 广播。</p>
+    <p id="health">正在读取采集状态…</p>
+    <p id="error"></p>
+    <ul id="events"></ul>
+    <script>
+      const status = document.querySelector('#status');
+      const health = document.querySelector('#health');
+      const error = document.querySelector('#error');
+      const events = document.querySelector('#events');
+      let commentCount = 0;
+      const socketProtocol = location.protocol === 'https:' ? 'wss' : 'ws';
+      const socket = new WebSocket(`${socketProtocol}://${location.host}/ws/events`);
+      socket.onopen = () => { status.textContent = '已连接，等待 comment…'; };
+      socket.onclose = () => { status.textContent = '连接已断开'; };
+      socket.onerror = () => { status.textContent = '连接错误'; error.textContent = 'WebSocket 连接失败'; };
+      socket.onmessage = (message) => {
+        const event = JSON.parse(message.data);
+        commentCount += 1;
+        error.textContent = '';
+        const item = document.createElement('li');
+        const user = document.createElement('strong');
+        user.textContent = `${event.event} · ${event.user.nickname || event.user.id}`;
+        const content = document.createElement('span');
+        content.textContent = event.data.content;
+        const time = document.createElement('time');
+        time.textContent = event.timestamp;
+        item.append(user, document.createElement('br'), content, document.createElement('br'), time);
+        events.prepend(item);
+        while (events.children.length > 30) events.lastElementChild.remove();
+      };
+
+      async function refreshHealth() {
+        try {
+          const response = await fetch('/health');
+          const payload = await response.json();
+          const collector = payload.collector;
+          health.textContent = `采集器：${collector.state} · COMMENT：${collector.event_count}`
+            + ` · 消息：${collector.last_message_at || '暂无'}`
+            + ` · 心跳：${collector.heartbeat_count}`
+            + ` · 重连：${collector.reconnect_count}`
+            + ` · 页面收到：${commentCount}`;
+          if (collector.last_error) error.textContent = collector.last_error;
+        } catch (requestError) {
+          error.textContent = '健康检查暂时不可用';
+        }
+      }
+      refreshHealth();
+      setInterval(refreshHealth, 2000);
+    </script>
+  </body>
+</html>
